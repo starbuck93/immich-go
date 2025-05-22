@@ -81,6 +81,9 @@ type ImportFlags struct {
 	PeopleTag bool
 	// Timezone
 	TZ *time.Location
+
+	// IncludeLocked indicates if assets from "Locked Folder" should be marked as locked
+	IncludeLocked bool
 }
 
 func (o *ImportFlags) AddFromGooglePhotosFlags(cmd *cobra.Command, parent *cobra.Command) {
@@ -107,6 +110,7 @@ func (o *ImportFlags) AddFromGooglePhotosFlags(cmd *cobra.Command, parent *cobra
 	cmd.Flags().BoolVar(&o.SessionTag, "session-tag", false, "Tag uploaded photos with a tag \"{immich-go}/YYYY-MM-DD HH-MM-SS\"")
 	cmd.Flags().BoolVar(&o.TakeoutTag, "takeout-tag", true, "Tag uploaded photos with a tag \"{takeout}/takeout-YYYYMMDDTHHMMSSZ\"")
 	cmd.Flags().BoolVar(&o.PeopleTag, "people-tag", true, "Tag uploaded photos with tags \"people/name\" found in the JSON file")
+	cmd.Flags().BoolVar(&o.IncludeLocked, "include-locked", false, "Mark uploaded assets as locked if from a 'Locked Folder' source")
 	cliflags.AddInclusionFlags(cmd, &o.InclusionFlags)
 
 	// exif.AddExifToolFlags(cmd, &o.ExifToolFlags)

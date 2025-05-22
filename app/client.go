@@ -171,6 +171,7 @@ func (client *Client) Open(ctx context.Context) error {
 	client.Immich, err = immich.NewImmichClient(
 		client.Server,
 		client.APIKey,
+		client.ClientLog, // Pass the logger here
 		immich.OptionVerifySSL(client.SkipSSL),
 		immich.OptionConnectionTimeout(client.ClientTimeout),
 		immich.OptionDryRun(client.DryRun),
@@ -183,6 +184,7 @@ func (client *Client) Open(ctx context.Context) error {
 	client.AdminImmich, err = immich.NewImmichClient(
 		client.Server,
 		client.AdminAPIKey,
+		client.ClientLog, // Pass the logger here
 		immich.OptionVerifySSL(client.SkipSSL),
 		immich.OptionConnectionTimeout(adminTime),
 	)

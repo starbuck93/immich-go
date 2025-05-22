@@ -3,6 +3,7 @@ package immich
 import (
 	"crypto/tls"
 	"io"
+	"log/slog" // Add this import
 	"net"
 	"net/http"
 	"os"
@@ -31,6 +32,7 @@ type ImmichClient struct {
 
 	supportedMediaTypes filetypes.SupportedMedia // Server's list of supported medias
 	dryRun              bool                     //  If true, do not send any data to the server
+	logger              *slog.Logger             // Logger for client operations
 }
 
 func (ic *ImmichClient) SetEndPoint(endPoint string) {
@@ -78,7 +80,7 @@ func OptionDryRun(dryRun bool) clientOption {
 }
 
 // Create a new ImmichClient
-func NewImmichClient(endPoint string, key string, options ...clientOption) (*ImmichClient, error) {
+func NewImmichClient(endPoint string, key string, logger *slog.Logger, options ...clientOption) (*ImmichClient, error) {
 	var err error
 	deviceUUID, err := os.Hostname()
 	if err != nil {
@@ -110,6 +112,7 @@ func NewImmichClient(endPoint string, key string, options ...clientOption) (*Imm
 		DeviceUUID:   deviceUUID,
 		Retries:      1,
 		RetriesDelay: time.Second * 1,
+		logger:       logger,
 	}
 
 	ic.client = &http.Client{

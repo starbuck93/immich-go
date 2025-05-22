@@ -71,6 +71,7 @@ func (ic *ImmichClient) uploadAsset(ctx context.Context, la *assets.Asset, endPo
 	callValues := ic.prepareCallValues(la, s, ext, mtype)
 	body, pw := io.Pipe()
 	m := multipart.NewWriter(pw)
+	errChan := make(chan error, 1) // Channel to send error from goroutine
 
 	go func() {
 		defer func() {
@@ -78,38 +79,58 @@ func (ic *ImmichClient) uploadAsset(ctx context.Context, la *assets.Asset, endPo
 			pw.Close()
 		}()
 
-		err = ic.writeMultipartFields(m, callValues)
-		if err != nil {
+		var goErr error // Local error variable for the goroutine
+
+		goErr = ic.writeMultipartFields(m, callValues)
+		if goErr != nil {
+			errChan <- goErr // Send error to channel
 			return
 		}
 
-		err = ic.writeFilePart(m, f, la.OriginalFileName, mtype)
-		if err != nil {
+		goErr = ic.writeFilePart(m, f, la.OriginalFileName, mtype)
+		if goErr != nil {
+			errChan <- goErr // Send error to channel
 			return
 		}
 
 		if la.FromSideCar != nil && strings.HasSuffix(strings.ToLower(la.FromSideCar.File.Name()), ".xmp") {
-			err = ic.writeSideCarPart(m, la)
-			if err != nil {
+			goErr = ic.writeSideCarPart(m, la)
+			if goErr != nil {
+				errChan <- goErr // Send error to channel
 				return
 			}
 		}
+		close(errChan) // Close channel when done
 	}()
 
 	var errCall error
-	switch endPoint {
-	case EndPointAssetUpload:
-		errCall = ic.newServerCall(ctx, EndPointAssetUpload).
-			do(postRequest("/assets", m.FormDataContentType(), setContextValue(callValues), setAcceptJSON(), setImmichChecksum(la), setBody(body)), responseJSON(&ar))
-	case EndPointAssetReplace:
-		errCall = ic.newServerCall(ctx, EndPointAssetReplace).
-			do(putRequest("/assets/"+replaceID+"/original", setContextValue(callValues), setAcceptJSON(), setImmichChecksum(la), setContentType(m.FormDataContentType()), setBody(body)), responseJSON(&ar))
+	select {
+	case goErr := <-errChan: // Receive error from goroutine
+		if goErr != nil {
+			errCall = goErr // Propagate error
+		}
+	case <-ctx.Done():
+		errCall = ctx.Err()
+	default:
+		// No error from goroutine yet, proceed with server call
 	}
-	if ar.Status == "duplicate" && errors.Is(err, io.ErrClosedPipe) {
-		err = nil // immich closes the connection when we upload the x-immich-checksum header and it finds a duplicate
+
+	if errCall == nil { // Only make server call if no error from goroutine
+		switch endPoint {
+		case EndPointAssetUpload:
+			errCall = ic.newServerCall(ctx, EndPointAssetUpload).
+				do(postRequest("/assets", m.FormDataContentType(), setContextValue(callValues), setAcceptJSON(), setImmichChecksum(la), setBody(body)), responseJSON(&ar))
+		case EndPointAssetReplace:
+			errCall = ic.newServerCall(ctx, EndPointAssetReplace).
+				do(putRequest("/assets/"+replaceID+"/original", setContextValue(callValues), setAcceptJSON(), setImmichChecksum(la), setContentType(m.FormDataContentType()), setBody(body)), responseJSON(&ar))
+		}
 	}
-	err = errors.Join(err, errCall)
-	return ar, err
+
+	if ar.Status == "duplicate" && errors.Is(errCall, io.ErrClosedPipe) { // Use errCall here
+		errCall = nil
+	}
+	// No need to join err with errCall anymore, as errCall now holds the goroutine error
+	return ar, errCall
 }
 
 func (ic *ImmichClient) prepareCallValues(la *assets.Asset, s fs.FileInfo, ext, mtype string) map[string]string {
@@ -129,6 +150,28 @@ func (ic *ImmichClient) prepareCallValues(la *assets.Asset, s fs.FileInfo, ext, 
 	callValues["duration"] = formatDuration(0)
 	callValues["isReadOnly"] = "false"
 	callValues["isArchived"] = myBool(la.Archived).String()
+	if la.Visibility != "" {
+		callValues["visibility"] = la.Visibility
+	}
+
+	// Add metadata from FromApplication if available
+	if la.FromApplication != nil {
+		if la.FromApplication.Description != "" {
+			callValues["description"] = la.FromApplication.Description
+		}
+		if la.FromApplication.Latitude != 0 || la.FromApplication.Longitude != 0 {
+			callValues["latitude"] = fmt.Sprintf("%f", la.FromApplication.Latitude)
+			callValues["longitude"] = fmt.Sprintf("%f", la.FromApplication.Longitude)
+		}
+		if la.FromApplication.Rating != 0 {
+			callValues["rating"] = fmt.Sprintf("%d", la.FromApplication.Rating)
+		}
+		if !la.FromApplication.DateTaken.IsZero() {
+			callValues["fileCreatedAt"] = la.FromApplication.DateTaken.Format(TimeFormat)
+		}
+	}
+
+	ic.logger.Debug("Prepared call values", "values", callValues)
 	return callValues
 }
 

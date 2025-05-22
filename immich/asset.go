@@ -124,6 +124,7 @@ const (
 	StatusCreated   = "created"
 	StatusReplaced  = "replaced"
 	StatusDuplicate = "duplicate"
+	AssetVisibilityLocked = "locked"
 )
 
 func (ic *ImmichClient) AssetUpload(ctx context.Context, la *assets.Asset) (AssetResponse, error) {
@@ -215,6 +216,7 @@ type UpdAssetField struct {
 	Description      string    `json:"description,omitempty"`
 	Rating           int       `json:"rating,omitempty"`
 	DateTimeOriginal time.Time `json:"dateTimeOriginal,omitempty"`
+	Visibility       string    `json:"visibility,omitempty"`
 }
 
 // MarshalJSON customizes the JSON marshaling for the UpdAssetField struct.
@@ -230,6 +232,7 @@ func (u UpdAssetField) MarshalJSON() ([]byte, error) {
 		Description      string    `json:"description,omitempty"`
 		Rating           int       `json:"rating,omitempty"`
 		DateTimeOriginal time.Time `json:"dateTimeOriginal,omitempty"`
+		Visibility       string    `json:"visibility,omitempty"`
 	}
 
 	// alias is used to omit Latitude and Longitude when they are zero.

@@ -502,23 +502,39 @@ func (upCmd *UpCmd) uploadAsset(ctx context.Context, a *assets.Asset) (string, e
 	}
 	a.ID = ar.ID
 
-	// // DEBGUG
-	//  if theID, ok := upCmd.assetIndex.byI
-
-	if a.FromApplication != nil && ar.Status != immich.StatusDuplicate {
-		// metadata from application (immich or google photos) are forced.
-		// if a.Description != "" || (a.Latitude != 0 && a.Longitude != 0) || a.Rating != 0 || !a.CaptureDate.IsZero() {
+	// Apply metadata from application (immich or google photos) if available
+	if a.FromApplication != nil {
 		a.UseMetadata(a.FromApplication)
-		_, err := upCmd.app.Client().Immich.UpdateAsset(ctx, a.ID, immich.UpdAssetField{
+	}
+
+	if ar.Status != immich.StatusDuplicate {
+		// Perform the metadata update (PUT)
+		updateFields := immich.UpdAssetField{
 			Description:      a.Description,
 			Latitude:         a.Latitude,
 			Longitude:        a.Longitude,
 			Rating:           a.Rating,
-			DateTimeOriginal: a.CaptureDate,
-		})
+			DateTimeOriginal: a.CaptureDate.UTC(), // Ensure UTC format for consistency
+		}
+
+		_, err := upCmd.app.Client().Immich.UpdateAsset(ctx, a.ID, updateFields)
 		if err != nil {
 			upCmd.app.Jnl().Record(ctx, fileevent.UploadServerError, a.File, "error", err.Error())
 			return "", err
+		}
+
+		// If it's a locked folder asset, perform a SECOND update to set visibility
+		if upCmd.takeoutOptions != nil && upCmd.takeoutOptions.IncludeLocked && strings.Contains(strings.ToLower(a.File.Name()), "locked folder") {
+			visibilityUpdateFields := immich.UpdAssetField{
+				Visibility: immich.AssetVisibilityLocked,
+			}
+			_, err := upCmd.app.Client().Immich.UpdateAsset(ctx, a.ID, visibilityUpdateFields)
+			if err != nil {
+				upCmd.app.Jnl().Log().Error("Failed to set locked visibility for asset", "file", a.File.Name(), "error", err)
+				upCmd.app.Jnl().Record(ctx, fileevent.UploadServerError, a.File, "error", fmt.Sprintf("failed to set locked visibility: %v", err))
+				return "", err
+			}
+			upCmd.app.Jnl().Log().Info("Set locked visibility for asset", "file", a.File.Name())
 		}
 	}
 	upCmd.assetIndex.addLocalAsset(a)
